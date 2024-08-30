@@ -1,9 +1,9 @@
 package com.ewc.eudi_wallet_oidc_android.services.did
 
 import com.ewc.eudi_wallet_oidc_android.CryptographicAlgorithms
+import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
-import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.util.Base64URL
 
 interface DIDServiceInterface {
@@ -84,5 +84,5 @@ interface DIDServiceInterface {
      * @return JWK object
      * @throws IllegalArgumentException if the DID format is invalid or conversion fails
      */
-    fun convertDIDToJWK(did:String):JWK
+    fun convertDIDToJWK(did: String, algorithm: JWSAlgorithm):JWK
 }

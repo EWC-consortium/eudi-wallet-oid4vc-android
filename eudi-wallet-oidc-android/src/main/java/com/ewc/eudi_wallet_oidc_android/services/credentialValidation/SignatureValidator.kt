@@ -16,8 +16,6 @@ import com.nimbusds.jose.util.Base64URL
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
-import com.google.gson.JsonArray
-import com.google.gson.JsonParser
 import com.nimbusds.jose.JOSEException
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSVerifier
@@ -43,10 +41,11 @@ class SignatureValidator {
                 val jwsObject = JWSObject.parse(jwt)
                 val header = jwsObject.header
                 val kid = header.keyID
+                val algorithm = jwsObject.header.algorithm
 
                 // Check the format of kid and process accordingly
                 val response = if ( kid !=null && kid.startsWith("did:key:z")) {
-                    processJWKFromKID(kid)
+                    processJWKFromKID(kid,algorithm)
                 } else if ( kid !=null && kid.startsWith("did:ebsi:z")){
                     processEbsiJWKFromKID(kid)
                 }
@@ -130,7 +129,7 @@ class SignatureValidator {
      * @param did
      * @return
      */
-    private fun processJWKFromKID(did: String?): JWK? {
+    private fun processJWKFromKID(did: String?, algorithm: JWSAlgorithm): JWK? {
         try {
             if (did == null || !did.startsWith("did:key:z")) {
                 throw IllegalArgumentException("Invalid DID format")
@@ -142,7 +141,7 @@ class SignatureValidator {
                 did.substring("did:key:z".length)
             }
             // Call convertDIDToJWK function from DIDService
-            return DIDService().convertDIDToJWK(multiBaseEncoded)
+            return DIDService().convertDIDToJWK(multiBaseEncoded,algorithm)
         } catch (e: IllegalArgumentException) {
             // Handle specific exception if needed
             throw IllegalArgumentException("Error converting DID to JWK", e)

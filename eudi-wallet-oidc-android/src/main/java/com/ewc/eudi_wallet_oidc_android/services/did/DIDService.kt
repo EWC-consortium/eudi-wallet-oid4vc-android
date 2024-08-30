@@ -2,6 +2,9 @@ package com.ewc.eudi_wallet_oidc_android.services.did
 
 import com.ewc.eudi_wallet_oidc_android.CryptographicAlgorithms
 import com.mediaparkpk.base58android.Base58
+import com.nimbusds.jose.JOSEException
+import com.nimbusds.jose.JWSAlgorithm
+import com.nimbusds.jose.crypto.ECDSAVerifier
 import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
@@ -211,7 +214,7 @@ class DIDService : DIDServiceInterface {
      * @return JWK object
      * @throws IllegalArgumentException if the DID format is invalid, decoding fails, or JSON parsing errors occur
      */
-    override fun convertDIDToJWK(did: String): JWK {
+    override fun convertDIDToJWK(did: String, algorithm: JWSAlgorithm,): JWK {
         val multiCodecBytes = try {
             Base58.decode(did)
         } catch (e: IllegalArgumentException) {
@@ -233,7 +236,13 @@ class DIDService : DIDServiceInterface {
         val y = jsonObject.get("y") as String
 
         // Create ECKey using Curve.P_256 (or appropriate curve)
-        val ecKey = ECKey.Builder(Curve.P_256, Base64URL.from(x), Base64URL.from(y))
+        val curve=  when (algorithm) {
+            JWSAlgorithm.ES256 -> Curve.P_256
+            JWSAlgorithm.ES384 -> Curve.P_384
+            JWSAlgorithm.ES512 -> Curve.P_521
+            else -> throw JOSEException("Unsupported JWS algorithm $algorithm")
+        }
+        val ecKey = ECKey.Builder(curve, Base64URL.from(x), Base64URL.from(y))
             .build()
 
         // Return as JWK
