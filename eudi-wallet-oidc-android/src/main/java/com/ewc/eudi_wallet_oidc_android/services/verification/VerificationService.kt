@@ -17,6 +17,7 @@ import com.ewc.eudi_wallet_oidc_android.services.sdjwt.SDJWTService
 import com.github.decentraliseddataexchange.presentationexchangesdk.PresentationExchange
 import com.github.decentraliseddataexchange.presentationexchangesdk.models.MatchedCredential
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.google.gson.internal.LinkedTreeMap
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
@@ -52,7 +53,6 @@ class VerificationService : VerificationServiceInterface {
     override suspend fun processAuthorisationRequest(data: String?): PresentationRequest? {
         if (data.isNullOrBlank())
             return null
-
         val clientId = Uri.parse(data).getQueryParameter("client_id")
         val state = Uri.parse(data).getQueryParameter("state")
         val redirectUri = Uri.parse(data).getQueryParameter("redirect_uri")
@@ -65,13 +65,11 @@ class VerificationService : VerificationServiceInterface {
         val responseUri = Uri.parse(data).getQueryParameter("response_uri")
         val responseMode = Uri.parse(data).getQueryParameter("response_mode")
         val clientMetadataJson = Uri.parse(data).getQueryParameter("client_metadata")
-
         val clientMetadetails: ClientMetaDetails? = if (!clientMetadataJson.isNullOrBlank()) {
             Gson().fromJson(clientMetadataJson, ClientMetaDetails::class.java)
         } else {
             null
         }
-
         if (presentationDefinition != null) {
             return PresentationRequest(
                 clientId = clientId,
@@ -85,23 +83,35 @@ class VerificationService : VerificationServiceInterface {
                 requestUri = requestUri,
                 responseUri = responseUri,
                 clientMetaDetails = clientMetadetails
-
             )
         } else if (!requestUri.isNullOrBlank() || !responseUri.isNullOrBlank()) {
             val response =
                 ApiManager.api.getService()
                     ?.getPresentationDefinitionFromRequestUri(requestUri ?: responseUri ?: "")
             if (response?.isSuccessful == true) {
-                if (isValidJWT(response.body().toString())) {
-
-                    val json = Gson().fromJson(
-                        parseJWTForPayload(response.body().toString()),
+                val contentType = response.headers()["Content-Type"]
+                val responseString = response.body()?.string()
+                val gson = Gson()
+                if (contentType?.contains("application/json") == true) {
+                    val json = gson.fromJson(
+                        responseString,
                         PresentationRequest::class.java
                     )
-
                     return json
-                } else {
-                    return null
+                }else{
+                    if (isValidJWT(responseString?:"")) {
+                        val json = gson.fromJson(
+                            parseJWTForPayload(responseString?:"{}"),
+                            PresentationRequest::class.java
+                        )
+                        return json
+                    }else{
+                        val json = gson.fromJson(
+                            responseString?:"{}",
+                            PresentationRequest::class.java
+                        )
+                        return json
+                    }
                 }
             } else {
                 return null

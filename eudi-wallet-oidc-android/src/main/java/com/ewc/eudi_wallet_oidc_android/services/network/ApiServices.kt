@@ -67,7 +67,7 @@ interface ApiService {
     ): Response<CredentialResponse>
 
     @GET
-    suspend fun getPresentationDefinitionFromRequestUri(@Url url: String): Response<String>
+    suspend fun getPresentationDefinitionFromRequestUri(@Url url: String): Response<ResponseBody>
 
     @FormUrlEncoded
     @POST("")
