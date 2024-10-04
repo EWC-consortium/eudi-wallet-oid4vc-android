@@ -1,5 +1,8 @@
 package com.ewc.eudi_wallet_oidc_android.models
 
+import com.ewc.eudi_wallet_oidc_android.models.v1.IssuerWellKnownConfigurationV1
+import com.ewc.eudi_wallet_oidc_android.models.v2.Claims
+import com.ewc.eudi_wallet_oidc_android.models.v2.IssuerWellKnownConfigurationV2
 import com.google.gson.annotations.SerializedName
 
 data class IssuerWellKnownConfiguration(
@@ -11,7 +14,29 @@ data class IssuerWellKnownConfiguration(
     @SerializedName("deferred_credential_endpoint") var deferredCredentialEndpoint: String? = null,
     @SerializedName("display") var display: Any? = null,
     @SerializedName("credentials_supported") var credentialsSupported: Any? = null
-)
+){
+    constructor(issuerWellKnownConfigurationV1: IssuerWellKnownConfigurationV1) : this(
+        issuer = issuerWellKnownConfigurationV1.issuer,
+        credentialIssuer = issuerWellKnownConfigurationV1.credentialIssuer,
+        authorizationServer = issuerWellKnownConfigurationV1.authorizationServer,
+        authorizationServers = issuerWellKnownConfigurationV1.authorizationServers,
+        credentialEndpoint = issuerWellKnownConfigurationV1.credentialEndpoint,
+        deferredCredentialEndpoint = issuerWellKnownConfigurationV1.deferredCredentialEndpoint,
+        display = issuerWellKnownConfigurationV1.display,
+        credentialsSupported = issuerWellKnownConfigurationV1.credentialsSupported
+    )
+    constructor(issuerWellKnownConfigurationV2:IssuerWellKnownConfigurationV2):this(
+        issuer = issuerWellKnownConfigurationV2.issuer,
+        credentialIssuer = issuerWellKnownConfigurationV2.credentialIssuer,
+        authorizationServer = issuerWellKnownConfigurationV2.authorizationServer,
+        authorizationServers = issuerWellKnownConfigurationV2.authorizationServers,
+        credentialEndpoint = issuerWellKnownConfigurationV2.credentialEndpoint,
+        deferredCredentialEndpoint = issuerWellKnownConfigurationV2.deferredCredentialEndpoint,
+        display = issuerWellKnownConfigurationV2.display,
+        credentialsSupported = issuerWellKnownConfigurationV2.credentialConfigurationsSupported
+
+    )
+}
 
 data class CredentialsSupported(
     @SerializedName("format") var format: String? = null,
@@ -27,7 +52,9 @@ data class CredentialDetails(
     @SerializedName("cryptographic_suites_supported") val cryptographicSuitesSupported: List<String>? = null,
     @SerializedName("display") val display: List<CredentialDisplay>? = null,
     @SerializedName("doctype") val doctype: String? = null,
-    @SerializedName("credential_definition") val  credentialDefinition: Any? = null
+    @SerializedName("credential_definition") val  credentialDefinition: Any? = null,
+    @SerializedName("vct") var vct: String? = null,
+    @SerializedName("claims") var claims: Claims? = null
 )
 data class CredentialDisplay(
     @SerializedName("name") var name: String? = null,

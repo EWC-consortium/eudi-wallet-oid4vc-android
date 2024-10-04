@@ -1,12 +1,13 @@
 package com.ewc.eudi_wallet_oidc_android.services.network
 
 import com.ewc.eudi_wallet_oidc_android.models.AuthorisationServerWellKnownConfiguration
-import com.ewc.eudi_wallet_oidc_android.models.CredentialOffer
 import com.ewc.eudi_wallet_oidc_android.models.CredentialRequest
 import com.ewc.eudi_wallet_oidc_android.models.CredentialResponse
 import com.ewc.eudi_wallet_oidc_android.models.DIDDocument
 import com.ewc.eudi_wallet_oidc_android.models.IssuerWellKnownConfiguration
+import com.ewc.eudi_wallet_oidc_android.models.ParResponse
 import com.ewc.eudi_wallet_oidc_android.models.TokenResponse
+import com.ewc.eudi_wallet_oidc_android.models.v2.DeferredCredentialRequestV2
 import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
@@ -21,10 +22,10 @@ import retrofit2.http.Url
 
 interface ApiService {
     @GET
-    suspend fun resolveCredentialOffer(@Url url: String): Response<CredentialOffer>
+    suspend fun resolveCredentialOffer(@Url url: String): Response<ResponseBody>
 
     @GET
-    suspend fun fetchIssuerConfig(@Url url: String): Response<IssuerWellKnownConfiguration>
+    suspend fun fetchIssuerConfig(@Url url: String): Response<ResponseBody>
 
     @GET
     suspend fun fetchAuthConfig(@Url url: String): Response<AuthorisationServerWellKnownConfiguration>
@@ -34,6 +35,12 @@ interface ApiService {
         @Url url: String,
         @QueryMap map: Map<String, String>
     ): Response<HashMap<String, Any>>
+    @FormUrlEncoded
+    @POST
+    suspend fun processParAuthorisationRequest(
+        @Url url: String,
+        @FieldMap map: Map<String, String>
+    ): Response<ParResponse>
 
     @FormUrlEncoded
     @POST("")
@@ -64,6 +71,12 @@ interface ApiService {
         @Url url: String,
         @Header("Authorization") authorization: String,
         @Body body: CredentialRequest
+    ): Response<CredentialResponse>
+    @POST("")
+    suspend fun getDifferedCredentialV2(
+        @Url url: String,
+        @Header("Authorization") authorization: String,
+        @Body body: DeferredCredentialRequestV2
     ): Response<CredentialResponse>
 
     @GET

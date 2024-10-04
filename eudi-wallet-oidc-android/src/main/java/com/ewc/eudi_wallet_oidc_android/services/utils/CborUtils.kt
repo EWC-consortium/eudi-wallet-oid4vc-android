@@ -18,6 +18,7 @@ import co.nstant.`in`.cbor.model.UnsignedInteger
 import com.ewc.eudi_wallet_oidc_android.models.PresentationRequest
 import com.ewc.eudi_wallet_oidc_android.models.VpToken
 import com.ewc.eudi_wallet_oidc_android.services.verification.VerificationService
+import java.io.BufferedInputStream
 import java.io.ByteArrayOutputStream
 import co.nstant.`in`.cbor.model.UnsignedInteger as CBORInteger
 
@@ -301,31 +302,51 @@ class CborUtils {
             var expiryUntil: String? = null
             if (cborData is CborArray) {
                 // Iterate over elements in the array
-                for (element in cborData.dataItems) { // Using getDataItems() to access the elements
+                for (element in cborData.dataItems) {
                     // Check if the element is a ByteString
                     if (element is CborByteString) {
                         try {
                             // Decode the ByteString as CBOR
                             val nestedCBORStream = ByteArrayInputStream(element.bytes)
-                            val nestedCBOR = CborDecoder(nestedCBORStream).decode()[0]
-                            if (nestedCBOR.tag.value == 24L) {
-                                // Check if the item under the tag is a ByteString
-                                if (nestedCBOR is CborByteString) {
-                                    try {
-                                        // Decode the inner ByteString
-                                        val decodedInnerCBORStream =
-                                            ByteArrayInputStream(nestedCBOR.bytes)
-                                        val decodedInnerCBOR =
-                                            CborDecoder(decodedInnerCBORStream).decode()[0]
+                            val nestedCBORDecoder = CborDecoder(nestedCBORStream)
 
-                                        // Extract the document type
-                                        expiryUntil = extractExpiry(decodedInnerCBOR)
+                            // Try decoding until an exception occurs
+                            while (true) {
+                                try {
+                                    val nestedCBOR = nestedCBORDecoder.decodeNext()
 
-                                    } catch (e: Exception) {
-                                        println("Failed to decode inner ByteString under Tag 24.")
+                                    if (nestedCBOR.tag.value == 24L) {
+                                        // Check if the item under the tag is a ByteString
+                                        if (nestedCBOR is CborByteString) {
+                                            try {
+                                                // Decode the inner ByteString
+                                                val decodedInnerCBORStream =
+                                                    ByteArrayInputStream(nestedCBOR.bytes)
+                                                val decodedInnerCBORDecoder = CborDecoder(decodedInnerCBORStream)
+
+                                                // Decode until an exception occurs
+                                                while (true) {
+                                                    try {
+                                                        val decodedInnerCBOR = decodedInnerCBORDecoder.decodeNext()
+                                                        // Extract the document type
+                                                        expiryUntil = extractExpiry(decodedInnerCBOR)
+                                                    } catch (innerE: Exception) {
+                                                        // Break if decoding inner fails
+                                                        break
+                                                    }
+                                                }
+
+                                            } catch (e: Exception) {
+                                                println("Failed to decode inner ByteString under Tag 24.")
+                                            }
+                                        }
+
                                     }
-                                }
 
+                                } catch (e: Exception) {
+                                    // Break if decoding the nested CBOR fails
+                                    break
+                                }
                             }
 
                         } catch (e: Exception) {

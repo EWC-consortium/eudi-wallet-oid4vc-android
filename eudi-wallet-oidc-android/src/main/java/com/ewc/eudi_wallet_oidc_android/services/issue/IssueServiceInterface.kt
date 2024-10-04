@@ -1,10 +1,10 @@
 package com.ewc.eudi_wallet_oidc_android.services.issue
 
+import com.ewc.eudi_wallet_oidc_android.models.AuthorisationServerWellKnownConfiguration
 import com.ewc.eudi_wallet_oidc_android.models.CredentialOffer
 import com.ewc.eudi_wallet_oidc_android.models.IssuerWellKnownConfiguration
 import com.ewc.eudi_wallet_oidc_android.models.WrappedCredentialResponse
 import com.ewc.eudi_wallet_oidc_android.models.WrappedTokenResponse
-import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
 
 interface IssueServiceInterface {
@@ -34,9 +34,10 @@ interface IssueServiceInterface {
         subJwk: JWK?,
         credentialOffer: CredentialOffer?,
         codeVerifier: String,
-        authorisationEndPoint: String?,
+        authConfig: AuthorisationServerWellKnownConfiguration?,
         format: String? = "jwt_vc_json",
-        docType: String? =null
+        docType: String? =null,
+        issuerConfig: IssuerWellKnownConfiguration?
     ): String?
 
     /**
@@ -60,7 +61,8 @@ interface IssueServiceInterface {
         code: String?,
         codeVerifier: String?,
         isPreAuthorisedCodeFlow: Boolean?,
-        userPin: String?
+        userPin: String?,
+        version: Int?
     ): WrappedTokenResponse?
 
     /**
@@ -101,6 +103,11 @@ interface IssueServiceInterface {
         acceptanceToken: String?,
         deferredCredentialEndPoint: String?
     ): WrappedCredentialResponse?
+    suspend fun processDeferredCredentialRequestV2(
+        transactionId: String?,
+        accessToken: String?,
+        deferredCredentialEndPoint: String?
+    ): WrappedCredentialResponse?
 
     /**
      * Get format from IssuerWellKnownConfiguration
@@ -133,6 +140,11 @@ interface IssueServiceInterface {
     fun getTypesFromIssuerConfig(
         issuerConfig: IssuerWellKnownConfiguration?,
         type: String?
+    ): Any?
+    fun getTypesFromIssuerConfig(
+        issuerConfig: IssuerWellKnownConfiguration?,
+        type: String?,
+        version:Int? = 2,
     ): Any?
 
     /**

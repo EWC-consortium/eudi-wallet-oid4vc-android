@@ -11,6 +11,7 @@ data class CredentialResponse(
     @SerializedName("format") var format: String? = null,
     @SerializedName("credential") var credential: String? = null,
     @SerializedName("acceptance_token") var acceptanceToken: String? = null,
+    @SerializedName("transaction_id") var transactionId: String? = null,
     @SerializedName("isDeferred") var isDeferred: Boolean? = null,
     @SerializedName("isPinRequired") var isPinRequired: Boolean? = null,
     @SerializedName("issuerConfig") var issuerConfig: IssuerWellKnownConfiguration? = null,
