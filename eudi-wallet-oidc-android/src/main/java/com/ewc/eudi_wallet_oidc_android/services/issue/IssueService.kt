@@ -6,9 +6,11 @@ import com.ewc.eudi_wallet_oidc_android.models.AuthorisationServerWellKnownConfi
 import com.ewc.eudi_wallet_oidc_android.models.AuthorizationDetails
 import com.ewc.eudi_wallet_oidc_android.models.ClientMetaDataas
 import com.ewc.eudi_wallet_oidc_android.models.CredentialDefinition
+import com.ewc.eudi_wallet_oidc_android.models.CredentialDetails
 import com.ewc.eudi_wallet_oidc_android.models.CredentialOffer
 import com.ewc.eudi_wallet_oidc_android.models.CredentialRequest
 import com.ewc.eudi_wallet_oidc_android.models.CredentialTypeDefinition
+import com.ewc.eudi_wallet_oidc_android.models.Credentials
 import com.ewc.eudi_wallet_oidc_android.models.ErrorResponse
 import com.ewc.eudi_wallet_oidc_android.models.IssuerWellKnownConfiguration
 import com.ewc.eudi_wallet_oidc_android.models.Jwt
@@ -25,6 +27,7 @@ import com.ewc.eudi_wallet_oidc_android.services.UrlUtils
 import com.ewc.eudi_wallet_oidc_android.services.codeVerifier.CodeVerifierService
 import com.ewc.eudi_wallet_oidc_android.services.network.ApiManager
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.nimbusds.jose.JOSEObjectType
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
@@ -35,6 +38,7 @@ import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import okhttp3.internal.format
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -369,7 +373,7 @@ class IssueService : IssueServiceInterface {
             return gson.toJson(
                 arrayListOf(
                     AuthorizationDetails(
-                        format = format,
+                        type = "openid_credential",
                         doctype = doctype,
                         credentialConfigurationId = credentialConfigurationId,
                         locations = arrayListOf(credentialOffer?.credentialIssuer ?: "")
@@ -390,8 +394,8 @@ class IssueService : IssueServiceInterface {
                     return gson.toJson(
                         arrayListOf(
                             AuthorizationDetails(
-                                format = format,
-                                credentialConfigurationId = credentialConfigurationId,
+                                format = if (format?.contains("sd-jwt") == true) format else null ,
+                                credentialConfigurationId =  if (format?.contains("sd-jwt") == true) null else credentialConfigurationId,
                                 credentialDefinition = if (format?.contains("sd-jwt") == true) null else CredentialTypeDefinition(
                                     type = getTypesFromIssuerConfig(
                                         issuerConfig = issuerConfig,
@@ -506,7 +510,21 @@ class IssueService : IssueServiceInterface {
         accessToken: String?,
         format: String
     ): WrappedCredentialResponse? {
-        val doctype = if (format == "mso_mdoc") "org.iso.18013.5.1.mDL" else null
+        val credentialsSupported = issuerConfig?.credentialsSupported as? Map<String, Any>
+        val credentials = credentialOffer?.credentials
+        val doctype: String? = if (format == "mso_mdoc") {
+            when (credentialsSupported) {
+                is Map<*, *> -> {
+                    @Suppress("UNCHECKED_CAST")
+                    val map = credentialsSupported as? Map<String, Any>
+                    getDocType(map, credentials)
+                }
+                else -> null
+            }
+        } else {
+            null
+        }
+        // val doctype = if (format == "mso_mdoc") "org.iso.18013.5.1.mDL" else null
 
         // Add claims
         val claimsSet = JWTClaimsSet
@@ -576,6 +594,40 @@ class IssueService : IssueServiceInterface {
 
         return credentialResponse
     }
+
+    fun getDocType(
+        credentialsSupported: Map<String, Any>?,
+        credentials: ArrayList<Credentials>?
+    ): String? {
+        if (credentialsSupported.isNullOrEmpty() || credentials.isNullOrEmpty()) {
+            return null
+        }
+
+        // Extract the first credential type from the credentials list
+        val credentialType = credentials.getOrNull(0)?.types?.firstOrNull() as? String ?: return null
+        // Find the matching credential in the credentialsSupported map
+        val matchingCredentialMap = credentialsSupported[credentialType] as? Map<String, Any>
+        val matchingCredential = matchingCredentialMap?.let { convertToCredentialDetails(it) }
+
+        return matchingCredential?.doctype
+    }
+
+    private fun convertToCredentialDetails(map: Map<String, Any>): CredentialDetails? {
+        return try {
+            val gson = GsonBuilder()
+                .setLenient()
+                .serializeNulls()
+                .create()
+
+            val jsonString = gson.toJson(map)
+            gson.fromJson(jsonString, CredentialDetails::class.java)
+        } catch (e: Exception) {
+            // Print the exception message to understand what went wrong
+            println("Error converting map to CredentialDetails: ${e.message}")
+            null
+        }
+    }
+
 
     private fun buildCredentialRequest(
         credentialOffer: CredentialOffer?,
