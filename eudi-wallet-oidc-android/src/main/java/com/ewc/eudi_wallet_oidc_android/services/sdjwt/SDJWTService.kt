@@ -3,7 +3,10 @@ package com.ewc.eudi_wallet_oidc_android.services.sdjwt
 import android.util.Base64
 import com.ewc.eudi_wallet_oidc_android.models.PresentationDefinition
 import com.ewc.eudi_wallet_oidc_android.models.PresentationRequest
+import com.ewc.eudi_wallet_oidc_android.services.utils.CborUtils
 import com.ewc.eudi_wallet_oidc_android.services.verification.VerificationService
+import com.github.decentraliseddataexchange.presentationexchangesdk.PresentationExchange
+import com.github.decentraliseddataexchange.presentationexchangesdk.models.MatchedCredential
 import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.google.gson.JsonElement
@@ -20,6 +23,7 @@ import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import org.json.JSONArray
+import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.Date
 import java.util.UUID
@@ -179,7 +183,9 @@ class SDJWTService : SDJWTServiceInterface {
         credential: String?,
         presentationDefinition: PresentationDefinition
     ): String? {
+        if (credential == null) return ""
         try {
+            val disclosureList: MutableList<String> = mutableListOf()
             // Split the credential into disclosures and the issued JWT
 
             val disclosures = getDisclosuresFromSDJWT(credential)
@@ -197,13 +203,96 @@ class SDJWTService : SDJWTServiceInterface {
             disclosures?.forEach { disclosure ->
                 try {
                     val list =
-                        JSONArray(Base64.decode(disclosure, Base64.URL_SAFE).toString(charset("UTF-8")))
+                        JSONArray(
+                            Base64.decode(disclosure, Base64.URL_SAFE).toString(charset("UTF-8"))
+                        )
                     if (list.length() >= 2 && requestedParams.contains(list.optString(1))) {
-                        issuedJwt = "$issuedJwt~$disclosure"
+                        disclosureList.add(disclosure)
                     }
-                } catch (e: Exception) {
+                    val thirdElement = list.opt(2)
+                    if (thirdElement is JSONObject) { // Checks if it's a JSON object
+                        val keys = thirdElement.keys() // Get keys from the JSONObject
 
-                }
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            if (requestedParams.contains(key)) {
+                                disclosureList.add(disclosure)
+                            }
+                        }
+                    }
+                    val pex = PresentationExchange()
+                    val sdList = mutableListOf<String>()
+                    presentationDefinition.inputDescriptors?.forEach { inputDescriptors ->
+                        // Retrieve formatMap from presentationDefinition or from inputDescriptors
+                        val formatMap = presentationDefinition.format?.takeIf { it.isNotEmpty() }
+                            ?: presentationDefinition.inputDescriptors
+                                ?.flatMap { it.format?.toList() ?: emptyList() }
+                                ?.toMap()
+
+                        // Initialize processed credentials and credentialList
+                        var processedCredentials: List<String> = emptyList()
+                        var credentialList: ArrayList<String?> = arrayListOf()
+
+                        if (formatMap != null) {
+                            if (formatMap.containsKey("mso_mdoc")) {
+                                credentialList = arrayListOf(credential)
+                                processedCredentials = CborUtils.processMdocCredentialToJsonString(credentialList) ?: emptyList()
+                            } else {
+                                credentialList = VerificationService().splitCredentialsBySdJWT(listOf(credential), inputDescriptors.constraints?.limitDisclosure != null)
+                                processedCredentials = VerificationService().processCredentialsToJsonString(credentialList)
+                            }
+                        }
+                        val inputDescriptor = Gson().toJson(inputDescriptors)
+
+                        val matches: List<MatchedCredential> =
+                            pex.matchCredentials(inputDescriptor, processedCredentials)
+                        for (match in matches) {
+                            for (field in match.fields) {
+                                val value = field.path.value
+                                // Check if the value is a Map or JSONObject
+                                if (value is JSONObject) {
+                                    // If it's a JSONObject, check for "_sd" key
+                                    if (value.has("_sd")) {
+                                        val sdArray = value.getJSONArray("_sd")
+                                        // Create a list to hold the _sd values
+                                        for (i in 0 until sdArray.length()) {
+                                            val sdItem = sdArray.get(i)
+                                            // You can process each item here if needed
+                                            if (sdItem is String) {
+                                                // Append each _sd item to the sdList
+                                                sdList.add(sdItem)
+                                            }
+                                        }
+                                    }
+                                } else if (value is Map<*, *>) {
+                                    // If it's a Map, check for "_sd" key
+                                    val map = value as Map<String, Any>
+                                    val sdArray = map["_sd"]
+                                    if (sdArray is List<*>) {
+                                        // Handle the _sd array if it exists
+                                        for (sdItem in sdArray) {
+                                            if (sdItem is String) {
+                                                // Append each _sd item to the sdList
+                                                sdList.add(sdItem)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+                    val response =  calculateSHA256Hash(disclosure)
+                    if(sdList.contains(response)){
+                        disclosureList.add(disclosure)
+                    }
+
+
+                } catch (e: Exception) { }
+            }
+
+            for(disclosureValue in disclosureList){
+                issuedJwt = "$issuedJwt~$disclosureValue"
             }
 
             return issuedJwt ?: ""

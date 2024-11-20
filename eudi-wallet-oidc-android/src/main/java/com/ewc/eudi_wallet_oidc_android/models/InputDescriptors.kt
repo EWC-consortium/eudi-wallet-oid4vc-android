@@ -6,6 +6,7 @@ data class InputDescriptors(
 
     @SerializedName("id") var id: String? = null,
     @SerializedName("name") var name: String? = null,
+    @SerializedName("purpose") var purpose: String? = null,
     @SerializedName("format") var format: Map<String, Jwt>? = mapOf(),
     @SerializedName("constraints") var constraints: Constraints? = null
 
@@ -21,7 +22,8 @@ data class Constraints(
 data class Fields(
 
     @SerializedName("path") var path: ArrayList<String>? = null,
-    @SerializedName("filter") var filter: Filter? = null
+    @SerializedName("filter") var filter: Filter? = null,
+    @SerializedName("optional") var optional: Boolean? = null
 
 )
 
