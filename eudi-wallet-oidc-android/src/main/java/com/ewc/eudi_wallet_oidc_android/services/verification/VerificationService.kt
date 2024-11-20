@@ -16,6 +16,7 @@ import com.ewc.eudi_wallet_oidc_android.models.PresentationSubmission
 import com.ewc.eudi_wallet_oidc_android.models.PresentationSubmissionMdoc
 import com.ewc.eudi_wallet_oidc_android.models.VPTokenResponse
 import com.ewc.eudi_wallet_oidc_android.models.VpToken
+import com.ewc.eudi_wallet_oidc_android.models.WrappedPresentationRequest
 import com.ewc.eudi_wallet_oidc_android.models.WrappedVpTokenResponse
 import com.ewc.eudi_wallet_oidc_android.services.issue.IssueService
 import com.ewc.eudi_wallet_oidc_android.services.network.ApiManager
@@ -23,6 +24,7 @@ import com.ewc.eudi_wallet_oidc_android.services.sdjwt.SDJWTService
 import com.ewc.eudi_wallet_oidc_android.services.utils.CborUtils
 import com.ewc.eudi_wallet_oidc_android.services.utils.JwtUtils.isValidJWT
 import com.ewc.eudi_wallet_oidc_android.services.utils.JwtUtils.parseJWTForPayload
+import com.ewc.eudi_wallet_oidc_android.services.utils.X509SanRequestVerifier
 import com.github.decentraliseddataexchange.presentationexchangesdk.PresentationExchange
 import com.github.decentraliseddataexchange.presentationexchangesdk.models.MatchedCredential
 import com.google.gson.Gson
@@ -35,13 +37,18 @@ import com.nimbusds.jose.crypto.Ed25519Signer
 import com.nimbusds.jose.jwk.ECKey
 import com.nimbusds.jose.jwk.JWK
 import com.nimbusds.jose.jwk.OctetKeyPair
-import com.nimbusds.jose.shaded.json.parser.ParseException
 import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.util.Date
 import java.util.UUID
-
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.charset.StandardCharsets
 
 class VerificationService : VerificationServiceInterface {
 
@@ -55,7 +62,7 @@ class VerificationService : VerificationServiceInterface {
      *
      * @return PresentationRequest
      */
-    override suspend fun processAuthorisationRequest(data: String?): PresentationRequest? {
+    override suspend fun processAuthorisationRequest(data: String?): WrappedPresentationRequest? {
         if (data.isNullOrBlank())
             return null
 
@@ -67,7 +74,8 @@ class VerificationService : VerificationServiceInterface {
         val nonce = Uri.parse(data).getQueryParameter("nonce")
         val presentationDefinition =
             Uri.parse(data).getQueryParameter("presentation_definition")
-        val presentationDefinitionUri = Uri.parse(data).getQueryParameter("presentation_definition_uri")
+        val presentationDefinitionUri =
+            Uri.parse(data).getQueryParameter("presentation_definition_uri")
         val responseType = Uri.parse(data).getQueryParameter("response_type")
         val scope = Uri.parse(data).getQueryParameter("scope")
         val requestUri = Uri.parse(data).getQueryParameter("request_uri")
@@ -75,6 +83,7 @@ class VerificationService : VerificationServiceInterface {
         val responseMode = Uri.parse(data).getQueryParameter("response_mode")
         val clientMetadataUri = Uri.parse(data).getQueryParameter("client_metadata_uri")
         val clientMetadataJson = Uri.parse(data).getQueryParameter("client_metadata")
+        val clientIdScheme = Uri.parse(data).getQueryParameter("client_id_scheme")
         val clientMetadetails: ClientMetaDetails? = if (!clientMetadataJson.isNullOrBlank()) {
             gson.fromJson(clientMetadataJson, ClientMetaDetails::class.java)
         } else {
@@ -93,18 +102,23 @@ class VerificationService : VerificationServiceInterface {
                 scope = scope,
                 requestUri = requestUri,
                 responseUri = responseUri,
-                clientMetaDetails = clientMetadetails
+                clientMetaDetails = clientMetadetails,
+                clientIdScheme = clientIdScheme
             )
-            if (presentationDefinition.isNullOrBlank() && !presentationDefinitionUri.isNullOrBlank()){
-                val resolvedPresentationDefinition = getPresentationDefinitionFromDefinitionUri(presentationDefinitionUri)
+            if (presentationDefinition.isNullOrBlank() && !presentationDefinitionUri.isNullOrBlank()) {
+                val resolvedPresentationDefinition =
+                    getPresentationDefinitionFromDefinitionUri(presentationDefinitionUri)
                 presentationRequest.presentationDefinition = resolvedPresentationDefinition
             }
-            if (clientMetadataJson.isNullOrBlank() && !clientMetadataUri.isNullOrBlank()){
-                val resolvedClientMetaData = getClientMetaDataFromClientMetaDataUri(clientMetadataUri)
+            if (clientMetadataJson.isNullOrBlank() && !clientMetadataUri.isNullOrBlank()) {
+                val resolvedClientMetaData =
+                    getClientMetaDataFromClientMetaDataUri(clientMetadataUri)
                 presentationRequest.clientMetaDetails = resolvedClientMetaData
             }
-            return presentationRequest
+            return WrappedPresentationRequest(presentationRequest = presentationRequest,errorResponse = null)
+
         } else if (!requestUri.isNullOrBlank() || !responseUri.isNullOrBlank()) {
+
             val response =
                 ApiManager.api.getService()
                     ?.getPresentationDefinitionFromRequestUri(requestUri ?: responseUri ?: "")
@@ -117,44 +131,52 @@ class VerificationService : VerificationServiceInterface {
                         responseString,
                         PresentationRequest::class.java
                     )
-                    if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()){
-                        val resolvedPresentationDefinition = getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
+                    if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()) {
+                        val resolvedPresentationDefinition =
+                            getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
                         json.presentationDefinition = resolvedPresentationDefinition
                     }
-                    if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()){
-                        val resolvedClientMetaDetails = getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
+                    if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()) {
+                        val resolvedClientMetaDetails =
+                            getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
                         json.clientMetaDetails = resolvedClientMetaDetails
                     }
-                    return json
-                }else{
-                    if (isValidJWT(responseString?:"")) {
+
+                    return validatePresentationRequest(WrappedPresentationRequest(presentationRequest = json) , responseString)
+                } else {
+                    if (isValidJWT(responseString ?: "")) {
                         val json = gson.fromJson(
-                            parseJWTForPayload(responseString?:"{}"),
+                            parseJWTForPayload(responseString ?: "{}"),
                             PresentationRequest::class.java
                         )
-                        if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()){
-                            val resolvedPresentationDefinition = getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
+                        if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()) {
+                            val resolvedPresentationDefinition =
+                                getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
                             json.presentationDefinition = resolvedPresentationDefinition
                         }
-                        if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()){
-                            val resolvedClientMetaDetails = getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
+                        if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()) {
+                            val resolvedClientMetaDetails =
+                                getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
                             json.clientMetaDetails = resolvedClientMetaDetails
                         }
-                        return json
-                    }else{
+                        return validatePresentationRequest(WrappedPresentationRequest(presentationRequest = json) , responseString)
+                    } else {
+
                         val json = gson.fromJson(
-                            responseString?:"{}",
+                            responseString ?: "{}",
                             PresentationRequest::class.java
                         )
-                        if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()){
-                            val resolvedPresentationDefinition = getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
+                        if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()) {
+                            val resolvedPresentationDefinition =
+                                getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
                             json.presentationDefinition = resolvedPresentationDefinition
                         }
-                        if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()){
-                            val resolvedClientMetaDetails = getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
+                        if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()) {
+                            val resolvedClientMetaDetails =
+                                getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
                             json.clientMetaDetails = resolvedClientMetaDetails
                         }
-                        return json
+                        return validatePresentationRequest(WrappedPresentationRequest(presentationRequest = json) , responseString)
                     }
                 }
             } else {
@@ -162,24 +184,120 @@ class VerificationService : VerificationServiceInterface {
             }
         } else if (isValidJWT(data)) {
             val json = gson.fromJson(
-                parseJWTForPayload(data?:"{}"),
+                parseJWTForPayload(data ?: "{}"),
                 PresentationRequest::class.java
             )
-            if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()){
-                val resolvedPresentationDefinition = getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
+            if (json.presentationDefinition == null && !json.presentationDefinitionUri.isNullOrBlank()) {
+                val resolvedPresentationDefinition =
+                    getPresentationDefinitionFromDefinitionUri(json.presentationDefinitionUri)
                 json.presentationDefinition = resolvedPresentationDefinition
             }
-            if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()){
-                val resolvedClientMetaDetails = getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
+            if (json.clientMetaDetails == null && !json.clientMetadataUri.isNullOrBlank()) {
+                val resolvedClientMetaDetails =
+                    getClientMetaDataFromClientMetaDataUri(json.clientMetadataUri)
                 json.clientMetaDetails = resolvedClientMetaDetails
             }
-            return json
+            return validatePresentationRequest(WrappedPresentationRequest(presentationRequest = json) , data)
         } else {
             return null
         }
     }
 
-    private suspend fun getPresentationDefinitionFromDefinitionUri(presentationDefinitionUri:String?):PresentationDefinition?{
+    private fun validatePresentationRequest(
+        presentationRequest: WrappedPresentationRequest,
+        responseString: String?
+    ): WrappedPresentationRequest? {
+        if (presentationRequest.presentationRequest?.clientIdScheme == "x509_san_dns" && responseString != null) {
+            var x5cChain: List<String>? = null
+
+            x5cChain = X509SanRequestVerifier.instance.extractX5cFromJWT(responseString)
+
+            // Calling the function
+            if (x5cChain != null) {
+                val isClientIdInDnsNames = X509SanRequestVerifier.instance.validateClientIDInCertificate(
+                    x5cChain,
+                    presentationRequest.presentationRequest?.clientId
+                )
+
+                val isSignatureValid =
+                    X509SanRequestVerifier.instance.validateSignatureWithCertificate(
+                        responseString,
+                        x5cChain
+                    )
+
+                val isTrustChainValid =
+                    X509SanRequestVerifier.instance.validateTrustChain(x5cChain)
+
+                return if(isClientIdInDnsNames && isSignatureValid && isTrustChainValid )   {
+                    presentationRequest
+                } else{
+                    WrappedPresentationRequest(presentationRequest = null,errorResponse = ErrorResponse(error = null , errorDescription = "Invalid Request" ))
+                }
+
+            } else {
+                return presentationRequest
+            }
+
+
+        } else {
+            return presentationRequest
+        }
+
+    }
+
+    private suspend fun processJwtFromRedirectUri(redirectUri: String): String? =
+        withContext(Dispatchers.IO) {
+            // Fetch JWT from the redirect URI
+            val jwt = fetchJwtFromUri(redirectUri)
+            jwt?.let {
+                // Decode the JWT to extract the payload
+                val decodedPayload = decodeJwtPayload(it)
+                decodedPayload?.let { payload ->
+                    // Parse JSON payload and retrieve fields
+                    val jsonPayload = JSONObject(payload)
+                    val clientId = jsonPayload.optString("client_id")
+                    val clientIdScheme = jsonPayload.optString("client_id_scheme")
+
+                    // Use client_id and client_id_scheme as needed
+                    println("Client ID: $clientId")
+                    println("Client ID Scheme: $clientIdScheme")
+
+                    return@withContext payload // Return payload or process further as needed
+                }
+            }
+            return@withContext null
+        }
+
+    private fun fetchJwtFromUri(uri: String): String? {
+        try {
+            val url = URL(uri)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+
+            if (connection.responseCode == HttpURLConnection.HTTP_OK) {
+                val reader = BufferedReader(InputStreamReader(connection.inputStream))
+                val jwt = reader.use { it.readText() }
+                connection.disconnect()
+                return jwt
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return null
+    }
+
+    private fun decodeJwtPayload(jwt: String): String? {
+        val parts = jwt.split(".")
+        return if (parts.size == 3) {
+            val payload = parts[1]
+            val decodedBytes = Base64.decode(payload, Base64.URL_SAFE)
+            String(decodedBytes, StandardCharsets.UTF_8)
+        } else {
+            null
+        }
+    }
+
+    private suspend fun getPresentationDefinitionFromDefinitionUri(presentationDefinitionUri: String?): PresentationDefinition? {
         if (presentationDefinitionUri.isNullOrBlank())
             return null
 
@@ -196,16 +314,16 @@ class VerificationService : VerificationServiceInterface {
                     PresentationDefinition::class.java
                 )
                 return json
-            }else{
-                if (isValidJWT(responseString?:"")) {
+            } else {
+                if (isValidJWT(responseString ?: "")) {
                     val json = gson.fromJson(
-                        parseJWTForPayload(responseString?:"{}"),
+                        parseJWTForPayload(responseString ?: "{}"),
                         PresentationDefinition::class.java
                     )
                     return json
-                }else{
+                } else {
                     val json = gson.fromJson(
-                        responseString?:"{}",
+                        responseString ?: "{}",
                         PresentationDefinition::class.java
                     )
                     return json
@@ -216,7 +334,7 @@ class VerificationService : VerificationServiceInterface {
         }
     }
 
-    private suspend fun getClientMetaDataFromClientMetaDataUri(clientMetadataUri:String?):ClientMetaDetails?{
+    private suspend fun getClientMetaDataFromClientMetaDataUri(clientMetadataUri: String?): ClientMetaDetails? {
         if (clientMetadataUri.isNullOrBlank())
             return null
 
@@ -233,23 +351,23 @@ class VerificationService : VerificationServiceInterface {
                         ClientMetaDetails::class.java
                     )
                     return json
-                }else{
-                    if (isValidJWT(responseString?:"")) {
+                } else {
+                    if (isValidJWT(responseString ?: "")) {
                         val json = gson.fromJson(
-                            parseJWTForPayload(responseString?:"{}"),
+                            parseJWTForPayload(responseString ?: "{}"),
                             ClientMetaDetails::class.java
                         )
                         return json
-                    }else{
+                    } else {
                         val json = gson.fromJson(
-                            responseString?:"{}",
+                            responseString ?: "{}",
                             ClientMetaDetails::class.java
                         )
                         return json
                     }
                 }
             } catch (e: Exception) {
-               return null
+                return null
             }
         } else {
             return null
@@ -338,26 +456,28 @@ class VerificationService : VerificationServiceInterface {
         credentialList: List<String>
     ): WrappedVpTokenResponse? {
 
-        val presentationDefinition=   processPresentationDefinition(presentationRequest.presentationDefinition)
+        val presentationDefinition =
+            processPresentationDefinition(presentationRequest.presentationDefinition)
         val formatMap = presentationDefinition.format?.takeIf { it.isNotEmpty() }
             ?: presentationDefinition.inputDescriptors
                 ?.flatMap { it.format?.toList() ?: emptyList() }
                 ?.toMap()
 
         val vpToken = if (formatMap?.containsKey("mso_mdoc") == true) {
-            mdocVpToken(credentialList,presentationRequest)
+            mdocVpToken(credentialList, presentationRequest)
         } else {
-            vpToken(presentationRequest, did, credentialList,subJwk )
+            vpToken(presentationRequest, did, credentialList, subJwk)
         }
-        val presentationSubmission = if (formatMap?.containsKey("mso_mdoc") == true){
+        val presentationSubmission = if (formatMap?.containsKey("mso_mdoc") == true) {
             createMdocPresentationSubmission(
                 presentationRequest
             )
-        }else{
+        } else {
             createPresentationSubmission(
                 presentationRequest
             )
         }
+
 
         val response = ApiManager.api.getService()?.sendVPToken(
             presentationRequest.responseUri ?: presentationRequest.redirectUri ?: "",
@@ -371,7 +491,7 @@ class VerificationService : VerificationServiceInterface {
         )
 
         val tokenResponse = when {
-            response?.code() == 200 ->{
+            response?.code() == 200 -> {
                 val redirectUri = response.body()?.string()
                 val gson = Gson()
                 try {
@@ -379,17 +499,19 @@ class VerificationService : VerificationServiceInterface {
                         gson.fromJson(redirectUri, VPTokenResponse::class.java)
                     return WrappedVpTokenResponse(
                         vpTokenResponse = VPTokenResponse(
-                            location = vpTokenResponse.redirectUri ?: "https://www.example.com?code=1"
+                            location = vpTokenResponse.redirectUri
+                                ?: "https://www.example.com?code=1"
                         )
                     )
                 } catch (e: Exception) {
                     return WrappedVpTokenResponse(
                         vpTokenResponse = VPTokenResponse(
-                            location ="https://www.example.com?code=1"
+                            location = "https://www.example.com?code=1"
                         )
                     )
                 }
             }
+
             response?.code() == 302 || response?.code() == 200 -> {
                 val locationHeader = response.headers()["Location"]
                 if (locationHeader?.contains("error=") == true) {
@@ -479,14 +601,19 @@ class VerificationService : VerificationServiceInterface {
         jwt.sign(if (subJwk is OctetKeyPair) Ed25519Signer(subJwk) else ECDSASigner(subJwk as ECKey))
         return jwt.serialize()
     }
-    private fun mdocVpToken(credentialList: List<String>, presentationRequest: PresentationRequest): String {
+
+    private fun mdocVpToken(
+        credentialList: List<String>,
+        presentationRequest: PresentationRequest
+    ): String {
         // Validate input
         if (credentialList.isEmpty()) {
             throw IllegalArgumentException("Credential list cannot be empty")
         }
         return try {
             // Extract presentation definition once, as it doesn't change for different credentials
-            val presentationDefinition = VerificationService().processPresentationDefinition(presentationRequest.presentationDefinition)
+            val presentationDefinition =
+                VerificationService().processPresentationDefinition(presentationRequest.presentationDefinition)
 
             // Create a list to hold documents
             val documentList = mutableListOf<Document>()
@@ -496,7 +623,8 @@ class VerificationService : VerificationServiceInterface {
                 // Extract issuer authentication, docType, and namespaces for each credential
                 val issuerAuth = CborUtils.processExtractIssuerAuth(listOf(credential))
                 val docType = CborUtils.extractDocTypeFromIssuerAuth(listOf(credential))
-                val nameSpaces = CborUtils.processExtractNameSpaces(listOf(credential), presentationRequest)
+                val nameSpaces =
+                    CborUtils.processExtractNameSpaces(listOf(credential), presentationRequest)
 
 
                 // Create IssuerSigned object for this credential
@@ -564,13 +692,17 @@ class VerificationService : VerificationServiceInterface {
             if (formatMap != null) {
                 if (formatMap.containsKey("mso_mdoc")) {
                     credentialList = ArrayList(allCredentialList)
-                    processedCredentials = CborUtils.processMdocCredentialToJsonString(allCredentialList) ?: emptyList()
+                    processedCredentials =
+                        CborUtils.processMdocCredentialToJsonString(allCredentialList)
+                            ?: emptyList()
                 } else {
-                    credentialList = splitCredentialsBySdJWT(allCredentialList, inputDescriptors.constraints?.limitDisclosure != null)
+                    credentialList = splitCredentialsBySdJWT(
+                        allCredentialList,
+                        inputDescriptors.constraints?.limitDisclosure != null
+                    )
                     processedCredentials = processCredentialsToJsonString(credentialList)
                 }
             }
-
             val filteredCredentialList: MutableList<String> = mutableListOf()
             val inputDescriptor = Gson().toJson(inputDescriptors)
 
@@ -588,7 +720,7 @@ class VerificationService : VerificationServiceInterface {
     }
 
 
-    private fun splitCredentialsBySdJWT(
+    fun splitCredentialsBySdJWT(
         allCredentials: List<String?>,
         isSdJwt: Boolean
     ): ArrayList<String?> {
@@ -602,14 +734,15 @@ class VerificationService : VerificationServiceInterface {
         return filteredCredentials
     }
 
-    private fun processCredentialsToJsonString(credentialList: ArrayList<String?>):List<String>{
+    fun processCredentialsToJsonString(credentialList: ArrayList<String?>): List<String> {
         var processedCredentials: List<String> = mutableListOf()
         for (cred in credentialList) {
             val split = cred?.split(".")
 
 
             val jsonString = if ((cred?.split("~")?.size ?: 0) > 0)
-                SDJWTService().updateIssuerJwtWithDisclosuresForFiltering(cred)
+            //SDJWTService().updateIssuerJwtWithDisclosuresForFiltering(cred)
+                SDJWTService().updateIssuerJwtWithDisclosures(cred)
             else
                 Base64.decode(
                     split?.get(1) ?: "",
@@ -674,9 +807,8 @@ class VerificationService : VerificationServiceInterface {
                 id = inputDescriptors.id,
                 path = "$",
                 format =
-                presentationDefinition.format?.keys?.firstOrNull() ?:
-                inputDescriptors.format?.keys?.firstOrNull() ?:
-                "jwt_vp",
+                presentationDefinition.format?.keys?.firstOrNull()
+                    ?: inputDescriptors.format?.keys?.firstOrNull() ?: "jwt_vp",
                 pathNested = PathNested(
                     id = inputDescriptors.id,
                     format = "jwt_vc",
@@ -693,6 +825,7 @@ class VerificationService : VerificationServiceInterface {
         )
         return presentationSubmission
     }
+
     private fun createMdocPresentationSubmission(
         presentationRequest: PresentationRequest
     ): PresentationSubmissionMdoc? {

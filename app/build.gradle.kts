@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.ewc.eudiwalletoidcandroid"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -72,7 +72,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.3.1")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.3.1")
 
-    implementation("com.github.decentralised-dataexchange:presentation-exchange-sdk-android:2024.3.1")
+    implementation("com.github.decentralised-dataexchange:presentation-exchange-sdk-android:2024.11.1")
     implementation("org.slf4j:slf4j-api") {
         version {
             strictly("2.0.9")

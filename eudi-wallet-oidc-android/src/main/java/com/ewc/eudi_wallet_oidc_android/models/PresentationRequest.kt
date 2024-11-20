@@ -20,5 +20,10 @@ data class PresentationRequest(
     @SerializedName("presentation_definition") var presentationDefinition: Any? = null,
     @SerializedName("presentation_definition_uri") var presentationDefinitionUri: String? = null,
     @SerializedName("client_metadata") var clientMetaDetails: Any? = null,
-    @SerializedName("client_metadata_uri") var clientMetadataUri: String? = null
+    @SerializedName("client_metadata_uri") var clientMetadataUri: String? = null,
+    @SerializedName("client_id_scheme") var clientIdScheme: String? = null
+)
+data class WrappedPresentationRequest(
+    var presentationRequest: PresentationRequest?=null,
+    var errorResponse: ErrorResponse? = null
 )

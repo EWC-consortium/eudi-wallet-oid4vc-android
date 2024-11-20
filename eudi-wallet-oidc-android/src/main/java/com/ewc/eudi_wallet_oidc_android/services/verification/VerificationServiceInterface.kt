@@ -2,6 +2,7 @@ package com.ewc.eudi_wallet_oidc_android.services.verification
 
 import com.ewc.eudi_wallet_oidc_android.models.PresentationDefinition
 import com.ewc.eudi_wallet_oidc_android.models.PresentationRequest
+import com.ewc.eudi_wallet_oidc_android.models.WrappedPresentationRequest
 import com.ewc.eudi_wallet_oidc_android.models.WrappedVpTokenResponse
 import com.github.decentraliseddataexchange.presentationexchangesdk.PresentationExchange
 import com.github.decentraliseddataexchange.presentationexchangesdk.models.MatchedCredential
@@ -22,7 +23,7 @@ interface VerificationServiceInterface {
      *
      * @return PresentationRequest
      */
-    suspend fun processAuthorisationRequest(data: String?): PresentationRequest?
+    suspend fun processAuthorisationRequest(data: String?): WrappedPresentationRequest?
 
     /**
      * Authorisation response is sent by constructing the vp_token and presentation_submission values.
